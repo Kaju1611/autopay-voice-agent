@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     internal_token: str = "dev-internal-token"
     slow_request_ms: int = 500  # requests slower than this are logged as WARNING
 
+        # --- mock payment provider ---
+    mock_provider_latency_ms: int = 300        # simulated gateway round trip, makes latency visible in the demo
+    mock_provider_default_outcome: str = ""    # SUCCESS | FAILED | DECLINED forces every retry; empty = per-payment setting
+    max_retry_attempts: int = 3
 
 @lru_cache
 def get_settings() -> Settings:
