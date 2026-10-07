@@ -16,6 +16,9 @@ class CustomerIn(BaseModel):
     autopay_enabled: bool = True
     call_permission: bool = True
 
+class CustomerOut(ORM, CustomerIn):
+    created_at: datetime | None = None
+    
 MockOutcome = Literal["SUCCESS", "FAILED", "DECLINED"]
 
 
@@ -43,3 +46,16 @@ class ScheduleRetryIn(BaseModel):
 
 class MockConfigIn(BaseModel):
     outcome: MockOutcome | None = None  # null clears the override
+
+class RecoveryAttemptOut(ORM):
+    id: int
+    customer_id: str
+    payment_id: str | None = None
+    call_id: str | None = None
+    action: str
+    result: str
+    created_at: datetime
+
+
+class RecoveryRequestIn(BaseModel):
+    payment_id: str | None = None
