@@ -50,7 +50,12 @@ class Settings(BaseSettings):
     # --- latency ---
     context_cache_ttl_s: int = 3600       # call context pre-loaded in Redis for fast tool calls
     mock_call_step_delay_ms: int = 700    # pause between simulated conversation steps
-    
+
+    # --- latency: tool calls made by the agent while the caller waits ---
+    payment_http_timeout_s: float = 3.0        # voice tool -> payment service
+    status_lookup_timeout_s: float = 0.8       # tight; falls back to the cached snapshot instead of leaving dead air
+    function_call_soft_budget_ms: int = 1000   # tool calls slower than this are counted as over budget
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

@@ -82,3 +82,9 @@ class CallEventOut(ORM):
 class CallDetailOut(CallOut):
     transcript: str | None = None
     events: list[CallEventOut] = []
+
+class FunctionCallIn(BaseModel):
+    name: Literal["get_customer_payment_status", "confirm_identity", "retry_payment", "schedule_payment_retry",
+                  "request_human_agent", "record_outcome", "end_call"]
+    args: dict = Field(default_factory=dict)
+    provider_call_id: str

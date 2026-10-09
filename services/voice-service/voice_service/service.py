@@ -1,18 +1,18 @@
-"""Call lifecycle: start a call (with context pre-warming), state transitions. Webhook events are added in Step 6B."""
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from shared.config import get_settings
 from shared.db import sessionmaker
-from shared.models import Call, CallEvent, RecoveryAttempt, new_id
+from shared.models import Call, CallEvent, RecoveryAttempt, new_id, utcnow
 from shared.redis import get_redis
 from shared.utils import http, state_machine as sm
 from shared.utils import logging as slog
-
 
 from .providers.base import CallRequest
 from .providers.factory import get_provider
@@ -144,3 +144,47 @@ async def move(s, call: Call, to: str, reason: str = "", **extra) -> None:
 def add_attempt(s, call: Call, action: str, result: str) -> None:
     s.add(RecoveryAttempt(customer_id=call.customer_id, payment_id=call.payment_id,
                           call_id=call.call_id, action=action, result=result))
+
+def _aware(dt: datetime | None) -> datetime | None:
+    return dt.replace(tzinfo=timezone.utc) if dt and dt.tzinfo is None else dt
+
+
+async def apply_event(event_type: str, event_id: str | None, pcid: str, data: dict) -> dict:
+    """Apply a provider event (call_started / transcript / call_ended) to the call. Safe to receive twice."""
+    ctx = await get_ctx(pcid)
+    if not ctx:
+        raise HTTPException(404, "unknown provider_call_id")
+    slog.bind(call_id=ctx["call_id"], customer_id=ctx["customer_id"], payment_id=ctx.get("payment_id"), provider_call_id=pcid)
+    async with sessionmaker()() as s:
+        s.add(CallEvent(call_id=ctx["call_id"], event_id=event_id, event_type=event_type, payload=data))
+        try:
+            await s.flush()
+        except IntegrityError:        # event_id is UNIQUE: a duplicate delivery is ignored (idempotency backstop)
+            await s.rollback()
+            return {"status": "duplicate"}
+        call = await s.scalar(select(Call).where(Call.call_id == ctx["call_id"]))
+
+        if event_type == "call_started":
+            call.started_at = utcnow()
+            if call.status == sm.CALL_INITIATED:
+                await move(s, call, sm.CUSTOMER_ANSWERED, "call_started")
+
+        elif event_type == "call_ended":
+            call.ended_at = utcnow()
+            dur = data.get("duration_ms")
+            call.duration = round(dur / 1000, 1) if dur is not None else (
+                (call.ended_at - _aware(call.started_at)).total_seconds() if call.started_at else 0.0)
+            if call.status == sm.CALL_INITIATED:           # never answered
+                await move(s, call, sm.NO_RESPONSE, data.get("disconnection_reason", "no answer"))
+            lines = (await s.scalars(select(CallEvent).where(CallEvent.call_id == call.call_id, CallEvent.event_type == "transcript")
+                                     .order_by(CallEvent.id))).all()
+            call.transcript = data.get("transcript") or "\n".join(
+                f"{'Agent' if e.payload.get('role') == 'agent' else 'Customer'}: {e.payload.get('content', '')}" for e in lines)
+            if sm.can_transition(call.status, sm.COMPLETED):
+                await move(s, call, sm.COMPLETED, data.get("disconnection_reason", "ended"))
+            call.outcome = call.outcome or "INCOMPLETE"
+            add_attempt(s, call, "CALL_COMPLETED", call.outcome)
+            await get_redis().delete(lock_key(call.customer_id))     # customer can be called again
+        # "transcript" events are just stored; the dashboard reads them live
+        await s.commit()
+        return {"status": "processed", "call_id": call.call_id, "state": call.status}

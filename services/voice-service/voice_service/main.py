@@ -7,12 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db import get_session
 from shared.models import Call, CallEvent
-from shared.schemas.models import CallDetailOut, CallOut
+
 from shared.utils.app import create_app
 from shared.utils.security import require_internal
 
-from . import service
+
 from .providers.factory import get_provider
+
+from shared.schemas.models import CallDetailOut, CallOut, FunctionCallIn
+from . import functions, service
 
 logger = logging.getLogger("voice")
 
@@ -64,5 +67,27 @@ async def end_call(call_id: str, s: AsyncSession = Depends(get_session)):
         raise HTTPException(404, "call not found")
     return {"forced_hangup": await get_provider().end_call(call.provider_call_id)}
 
+internal = APIRouter(prefix="/internal", dependencies=[Depends(require_internal)], tags=["internal"])
+
+
+class EventIn(BaseModel):
+    event_type: str
+    event_id: str | None = None
+    provider_call_id: str
+    data: dict = {}
+
+
+@internal.post("/events")
+async def apply_event(body: EventIn):
+    """Called by the webhook service (Step 7) for call_started / transcript / call_ended."""
+    return await service.apply_event(body.event_type, body.event_id, body.provider_call_id, body.data)
+
+
+@internal.post("/functions/execute")
+async def execute_function(body: FunctionCallIn):
+    """Called by the webhook service when the agent invokes a tool."""
+    return await functions.execute(body.name, body.args, body.provider_call_id)
+
 
 app.include_router(calls)
+app.include_router(internal)
