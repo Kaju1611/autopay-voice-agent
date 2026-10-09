@@ -59,3 +59,26 @@ class RecoveryAttemptOut(ORM):
 
 class RecoveryRequestIn(BaseModel):
     payment_id: str | None = None
+
+class CallOut(ORM):
+    call_id: str
+    customer_id: str
+    payment_id: str | None = None
+    provider_call_id: str | None = None
+    status: str
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    duration: float | None = None
+    outcome: str | None = None
+    created_at: datetime | None = None
+
+
+class CallEventOut(ORM):
+    event_type: str
+    payload: dict
+    created_at: datetime
+
+
+class CallDetailOut(CallOut):
+    transcript: str | None = None
+    events: list[CallEventOut] = []

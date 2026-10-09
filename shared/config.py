@@ -35,6 +35,21 @@ class Settings(BaseSettings):
     # False (default): a call is only placed when someone explicitly requests one.
     # payment.failed events are ignored unless this is true. Never enable with a real provider unless every number is authorised.
     auto_recovery: bool = False
+
+        # --- voice provider (adapter chosen by VOICE_PROVIDER: mock | retell) ---
+    voice_provider: str = "mock"
+    voice_provider_api_key: str = ""
+    voice_provider_agent_id: str = ""
+    voice_provider_from_number: str = ""
+    # SAFETY: every outbound call is dialled to this number and ONLY this number (must be yours / authorised).
+    demo_phone_number: str = ""
+
+    # --- webhooks ---
+    webhook_secret: str = "dev-webhook-secret"
+
+    # --- latency ---
+    context_cache_ttl_s: int = 3600       # call context pre-loaded in Redis for fast tool calls
+    mock_call_step_delay_ms: int = 700    # pause between simulated conversation steps
     
 @lru_cache
 def get_settings() -> Settings:
