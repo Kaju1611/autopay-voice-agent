@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     status_lookup_timeout_s: float = 0.8       # tight; falls back to the cached snapshot instead of leaving dead air
     function_call_soft_budget_ms: int = 1000   # tool calls slower than this are counted as over budget
 
+    function_call_hard_timeout_ms: int = 3500   # tool calls: after this the agent gets a graceful "still processing" reply
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
