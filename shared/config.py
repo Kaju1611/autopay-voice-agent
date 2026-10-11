@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     function_call_soft_budget_ms: int = 1000   # tool calls slower than this are counted as over budget
 
     function_call_hard_timeout_ms: int = 3500   # tool calls: after this the agent gets a graceful "still processing" reply
+
+        # --- gateway security ---
+    jwt_secret: str = "dev-jwt-secret-change-me"
+    jwt_ttl_minutes: int = 480
+    admin_username: str = "admin"
+    admin_password: str = "admin123"
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    rate_limit_per_minute: int = 240
+    
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

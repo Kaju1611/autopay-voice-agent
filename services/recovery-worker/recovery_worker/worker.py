@@ -103,6 +103,14 @@ async def run_forever() -> None:
             await consume_once()
         except asyncio.CancelledError:
             raise
+        except ResponseError as e:
+            if "NOGROUP" in str(e):
+                # Redis was flushed or restarted: recreate the consumer group and carry on
+                logger.warning("consumer group missing; recreating")
+                await ensure_group()
+            else:
+                logger.exception("consumer loop error; backing off 1s")
+                await asyncio.sleep(1)
         except Exception:  # noqa: BLE001
             logger.exception("consumer loop error; backing off 1s")
             await asyncio.sleep(1)
