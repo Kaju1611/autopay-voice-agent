@@ -1,3 +1,24 @@
+x-service: &service
+  env_file: .env
+  restart: unless-stopped
+  depends_on:
+    migrate: {condition: service_completed_successfully}
+    redis: {condition: service_healthy}
+  environment: &docker-env
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-autopay}:${POSTGRES_PASSWORD:-autopay}@postgres:5432/${POSTGRES_DB:-autopay}
+    REDIS_URL: redis://redis:6379/0
+    CUSTOMER_SERVICE_URL: http://customer-service:8001
+    PAYMENT_SERVICE_URL: http://payment-service:8002
+    VOICE_SERVICE_URL: http://voice-service:8003
+    WEBHOOK_SERVICE_URL: http://webhook-service:8004
+    RECOVERY_SERVICE_URL: http://recovery-worker:8005
+
+x-health: &health
+  interval: 10s
+  timeout: 3s
+  retries: 6
+  start_period: 10s
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -12,12 +33,64 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]   # memory only: lowest latency, state is rebuildable
     ports: ["6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  migrate:                       # one-shot: alembic upgrade + seed the 10 fictional customers
+    build: {context: ., dockerfile: database/Dockerfile}
+    env_file: .env
+    environment: *docker-env
+    depends_on: {postgres: {condition: service_healthy}}
+    restart: "no"
+
+  customer-service:
+    <<: *service
+    build: {context: ., dockerfile: services/customer-service/Dockerfile}
+    healthcheck: {<<: *health, test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://127.0.0.1:8001/health')"]}
+
+  payment-service:
+    <<: *service
+    build: {context: ., dockerfile: services/payment-service/Dockerfile}
+    healthcheck: {<<: *health, test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://127.0.0.1:8002/health')"]}
+
+  voice-service:
+    <<: *service
+    build: {context: ., dockerfile: services/voice-service/Dockerfile}
+    healthcheck: {<<: *health, test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://127.0.0.1:8003/health')"]}
+
+  webhook-service:
+    <<: *service
+    build: {context: ., dockerfile: services/webhook-service/Dockerfile}
+    ports: ["8004:8004"]         # the one service you expose (tunnel) to a real voice provider
+    healthcheck: {<<: *health, test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://127.0.0.1:8004/health')"]}
+
+  recovery-worker:
+    <<: *service
+    build: {context: ., dockerfile: services/recovery-worker/Dockerfile}
+    healthcheck: {<<: *health, test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://127.0.0.1:8005/health')"]}
+
+  api-gateway:
+    <<: *service
+    build: {context: ., dockerfile: services/api-gateway/Dockerfile}
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      customer-service: {condition: service_healthy}
+      payment-service: {condition: service_healthy}
+      voice-service: {condition: service_healthy}
+      recovery-worker: {condition: service_healthy}
+    healthcheck: {<<: *health, test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://127.0.0.1:8000/health')"]}
+
+  frontend:
+    build: {context: ./frontend}
+    ports: ["5173:80"]
+    depends_on: [api-gateway]
 
 volumes:
   pgdata:
