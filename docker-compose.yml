@@ -14,10 +14,10 @@ x-service: &service
     RECOVERY_SERVICE_URL: http://recovery-worker:8005
 
 x-health: &health
-  interval: 10s
-  timeout: 3s
-  retries: 6
-  start_period: 10s
+  interval: 15s
+  timeout: 10s
+  retries: 12
+  start_period: 60s
 
 services:
   postgres:
